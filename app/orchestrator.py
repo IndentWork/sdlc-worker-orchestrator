@@ -17,6 +17,7 @@ import json
 import logging
 
 from app.agents.analyst import run_analyst
+from app.agents.coder import run_coder
 from app.observability.progress import ProgressTracker
 from app.services.context import ContextError, load_context
 from app.services.git import GitRepo
@@ -39,8 +40,9 @@ class SDLCPipeline:
         self.ctx      = None   # PipelineContext (sdlc.yml + project + issue)
         self.tracker  = None   # ProgressTracker (posts on issue)
         self.analysis = None   # Analyst output {status, repo, files_to_change, ...}
-        self.branch   = None   # Feature branch name e.g. feat/issue-17-rename-apply-discount-agent
-        self.git_repo = None   # GitRepo — local clone of the code repo
+        self.branch      = None   # Feature branch name e.g. feat/issue-17-rename-apply-discount-agent
+        self.git_repo    = None   # GitRepo — local clone of the code repo
+        self.coder_result = None  # Coder output {status, files_modified, commits}
 
     # ── Pipeline steps ────────────────────────────────────────────────────────
 
@@ -96,7 +98,21 @@ class SDLCPipeline:
         )
         self.tracker.branch_created(self.branch, repo)
 
-    # TODO: def _run_coder(self)
+    def _run_coder(self, feedback: str = None) -> None:
+        """
+        Coder reads files from local clone, implements the change,
+        runs tests, commits and pushes to the feature branch.
+        feedback — human rejection reason on rework (None on first run).
+        """
+        self.coder_result = run_coder(
+            requirement     = self.ctx.requirement,
+            files_to_change = self.analysis["files_to_change"],
+            git_repo        = self.git_repo,
+            openai_api_key  = self.openai_api_key,
+            feedback        = feedback,
+        )
+        self.tracker.coder_done(self.coder_result)
+
     # TODO: def _create_pr(self)
     # TODO: def _run_reviewer(self)
     # TODO: def _wait_for_human(self)
@@ -135,8 +151,14 @@ class SDLCPipeline:
         # Posts branch name as comment on the issue
         self._create_branch()
 
-        # Step 6 — Coder implements the change (TODO)
-        # self._run_coder()          → LLM reads files, writes changes, commits
+        # Step 6 — Coder implements the change
+        # LLM reads files from local clone, writes changes, runs tests, commits + pushes
+        self._run_coder()
+
+        if self.coder_result.get("status") == "failed":
+            return
+
+        # Step 7 — Create PR (TODO)
         # self._create_pr()          → opens PR from branch → main
 
         # Step 6 — Reviewer reviews the PR (TODO)

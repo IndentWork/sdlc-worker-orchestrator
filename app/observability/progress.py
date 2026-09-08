@@ -61,3 +61,26 @@ class ProgressTracker:
             f"**Repo:** {repo}\n\n"
             f"⏳ Handing off to Coder agent..."
         )
+
+    def coder_done(self, result: dict) -> None:
+        status = result.get("status")
+        commits = result.get("commits", [])
+        files   = ", ".join(result.get("files_modified", []))
+
+        if status == "failed":
+            last = commits[-1] if commits else {}
+            self._post(
+                f"❌ Coder failed\n\n"
+                f"**Reason:** {last.get('test_results', 'unknown error')}"
+            )
+        else:
+            commit_lines = "\n".join(
+                f"- `{c.get('message', '')}` — {c.get('test_results', '')}"
+                for c in commits
+            )
+            self._post(
+                f"✅ Coder complete\n\n"
+                f"**Files modified:** {files}\n"
+                f"**Commits:**\n{commit_lines}\n\n"
+                f"⏳ Creating PR..."
+            )
