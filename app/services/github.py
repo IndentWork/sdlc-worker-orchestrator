@@ -104,6 +104,18 @@ class GitHub:
             "url":       data["html_url"],
         }
 
+    def get_pr_diff(self, repo: str, pr_number: int) -> str:
+        """
+        Fetch the unified diff for a pull request.
+        Reviewer agent reads this to independently assess the code change.
+        """
+        url = f"{GITHUB_API}/repos/{self._org}/{repo}/pulls/{pr_number}"
+        headers = {**self._headers, "Accept": "application/vnd.github.v3.diff"}
+        with httpx.Client() as client:
+            response = client.get(url, headers=headers)
+            response.raise_for_status()
+        return response.text
+
     def comment_on_issue(self, issue_repo: str, issue_number: int, body: str) -> None:
         """Post a comment on a GitHub issue — used to report live progress."""
         url = f"{GITHUB_API}/repos/{self._org}/{issue_repo}/issues/{issue_number}/comments"

@@ -69,6 +69,20 @@ class ProgressTracker:
             f"Please review and comment `/approve` to merge or `/reject <reason>` to request changes."
         )
 
+    def reviewer_done(self, result: dict) -> None:
+        status = result.get("status")
+        reason = result.get("reason", "")
+        if status == "approved":
+            self._post(f"✅ Reviewer approved\n\n{reason}")
+        else:
+            self._post(f"🔄 Reviewer rejected — sending back to Coder\n\n**Reason:** {reason}")
+
+    def ready_for_human(self) -> None:
+        self._post(
+            "🧑 Agent review complete — ready for your review\n\n"
+            "Comment `/approve` to merge or `/reject <reason>` to request changes."
+        )
+
     def coder_done(self, result: dict) -> None:
         status = result.get("status")
         commits = result.get("commits", [])

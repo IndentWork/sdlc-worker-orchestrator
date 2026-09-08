@@ -18,6 +18,7 @@ import logging
 
 from app.agents.analyst import run_analyst
 from app.agents.coder import run_coder
+from app.agents.reviewer import run_reviewer
 from app.observability.progress import ProgressTracker
 from app.services.context import ContextError, load_context
 from app.services.git import GitRepo
@@ -42,7 +43,9 @@ class SDLCPipeline:
         self.analysis = None   # Analyst output {status, repo, files_to_change, ...}
         self.branch      = None   # Feature branch name e.g. feat/issue-17-rename-apply-discount-agent
         self.git_repo    = None   # GitRepo — local clone of the code repo
-        self.coder_result = None  # Coder output {status, files_modified, commits}
+        self.coder_result    = None  # Coder output {status, files_modified, commits}
+        self.pr_number       = None  # PR number opened by _create_pr
+        self.review_result   = None  # Reviewer output {status, reason}
 
     # ── Pipeline steps ────────────────────────────────────────────────────────
 
@@ -137,10 +140,21 @@ class SDLCPipeline:
             body   = body,
         )
 
-        log.info(json.dumps({"event": "pr_created", "pr_number": pr["pr_number"], "url": pr["url"]}))
-        self.tracker.pr_created(pr["url"], pr["pr_number"])
+        self.pr_number = pr["pr_number"]
+        log.info(json.dumps({"event": "pr_created", "pr_number": self.pr_number, "url": pr["url"]}))
+        self.tracker.pr_created(pr["url"], self.pr_number)
 
-    # TODO: def _run_reviewer(self)
+    def _run_reviewer(self) -> None:
+        """
+        Reviewer independently reads requirement + PR diff.
+        No Coder reasoning shared — genuine second opinion.
+        If rejected: Coder reworks on same branch, PR stays open.
+        """
+        repo     = self.analysis["repo"]
+        pr_diff  = self.github.get_pr_diff(repo, self.pr_number)
+        self.review_result = run_reviewer(self.ctx.requirement, pr_diff, self.openai_api_key)
+        self.tracker.reviewer_done(self.review_result)
+
     # TODO: def _wait_for_human(self)
     # TODO: def _merge_and_close(self)
 
@@ -189,10 +203,31 @@ class SDLCPipeline:
         # Posts PR URL as comment on the issue
         self._create_pr()
 
-        # Step 8 — Reviewer reviews the PR (TODO)
-        # self._run_reviewer()
-        # self._wait_for_human()
-        # self._merge_and_close()
+        # Step 8 — Reviewer loop (max 2 rejections)
+        # Reviewer reads requirement + PR diff independently
+        # If rejected → Coder reworks on same branch (PR stays open) → Reviewer reviews again
+        MAX_REVIEWER_REJECTIONS = 2
+        reviewer_rejections     = 0
+
+        while True:
+            self._run_reviewer()
+
+            if self.review_result["status"] == "approved":
+                break
+
+            reviewer_rejections += 1
+            if reviewer_rejections >= MAX_REVIEWER_REJECTIONS:
+                log.error(json.dumps({"event": "reviewer_max_rejections"}))
+                return
+
+            # Coder reworks with reviewer feedback — pushes to same branch, PR auto-updates
+            self._run_coder(feedback=self.review_result["reason"])
+
+        # Step 9 — Notify human (PR approved by agent, waiting for human)
+        self.tracker.ready_for_human()
+
+        # TODO: self._wait_for_human()
+        # TODO: self._merge_and_close()
 
         # Step 6 — Reviewer reviews the PR (TODO)
         # self._run_reviewer()       → LLM reviews diff, approves or rejects
