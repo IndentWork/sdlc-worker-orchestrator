@@ -108,13 +108,21 @@ def run_analyst(requirement: str, tools: list, openai_api_key: str) -> dict:
             log.info(json.dumps({
                 "event": "tool_called",
                 "tool":  call["name"],
+                "args":  call["args"],
                 "count": tool_call_count,
             }))
 
             try:
                 result = tool_map[call["name"]].invoke(call["args"])
+                log.info(json.dumps({
+                    "event":        "tool_result",
+                    "tool":         call["name"],
+                    "result_count": len(result) if isinstance(result, list) else 1,
+                    "result":       str(result)[:300],
+                }))
             except Exception as exc:
                 result = {"error": str(exc)}
+                log.error(json.dumps({"event": "tool_error", "tool": call["name"], "error": str(exc)}))
 
             messages.append(ToolMessage(
                 content=json.dumps(result, default=str),
