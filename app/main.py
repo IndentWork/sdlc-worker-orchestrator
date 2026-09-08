@@ -1,12 +1,14 @@
 """
 SDLC Orchestrator Worker — listens on Service Bus for orchestrate messages.
 
-For now: receives the message and logs issue details.
+For now: receives message, fetches issue from GitHub, logs title + requirement.
 Next: will run Analyst → Coder → Reviewer agents.
 
 Environment variables required:
   SERVICEBUS_NAMESPACE  — e.g. sb-sdlc-shared-dev.servicebus.windows.net
   AZURE_CLIENT_ID       — Managed Identity client ID
+  GITHUB_APP_ID         — GitHub App ID (4826692)
+  KEY_VAULT_URL         — e.g. https://kv-sdlc-base-dev.vault.azure.net
   ENV                   — dev or prod
 """
 import asyncio
@@ -18,6 +20,9 @@ from datetime import datetime, timezone
 
 from azure.identity.aio import DefaultAzureCredential
 from azure.servicebus.aio import ServiceBusClient
+
+from app.services.github import GitHub
+from app.services.keyvault import get_github_app_private_key
 
 TOPIC_NAME        = "sdlc-events"
 SUBSCRIPTION_NAME = "orchestrator"
@@ -56,15 +61,34 @@ log = _setup_logging()
 async def _process_message(payload: dict) -> None:
     """
     Process one orchestrate message.
-    Currently just logs the issue details — agents will be added here.
+    Fetches issue from GitHub and logs the requirement.
+    Next: will pass requirement to Analyst agent.
     """
+    github_org   = payload.get("github_org")
+    issue_repo   = payload.get("issue_repo")
+    issue_number = payload.get("issue_number")
+
     log.info(json.dumps({
         "event":        "orchestration_started",
-        "github_org":   payload.get("github_org"),
-        "issue_repo":   payload.get("issue_repo"),
-        "issue_number": payload.get("issue_number"),
-        "resource_code": payload.get("resource_code"),
-        "message":      "Hello from sdlc-worker-orchestrator! Agents coming soon.",
+        "github_org":   github_org,
+        "issue_repo":   issue_repo,
+        "issue_number": issue_number,
+    }))
+
+    # get GitHub App token
+    app_id      = os.environ["GITHUB_APP_ID"]
+    private_key = await get_github_app_private_key()
+    github      = await GitHub.create(github_org, app_id, private_key)
+
+    # fetch issue — the user's requirement is in the body
+    issue = await github.get_issue(issue_repo, issue_number)
+
+    log.info(json.dumps({
+        "event":       "issue_fetched",
+        "number":      issue["number"],
+        "title":       issue["title"],
+        "requirement": issue["body"],
+        "url":         issue["url"],
     }))
 
 
