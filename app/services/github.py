@@ -97,6 +97,14 @@ class GitHub:
         token           = await _get_installation_token(installation_id, jwt_token)
         return cls(github_org, token)
 
+    async def comment_on_issue(self, issue_repo: str, issue_number: int, body: str) -> None:
+        """Post a comment on a GitHub issue — used to report live progress to the tenant."""
+        url = f"{GITHUB_API}/repos/{self._org}/{issue_repo}/issues/{issue_number}/comments"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=self._headers, json={"body": body})
+            response.raise_for_status()
+
     async def get_file_content(self, repo: str, file_path: str) -> str:
         """
         Fetch the raw content of a file from GitHub.

@@ -1,17 +1,17 @@
 """
-Codebase tools — read-only tools for the Analyst agent.
+Codebase tools — tools for investigating the codebase.
 
-Three tools:
-  search_code      — find relevant code via semantic search (Azure AI Search)
-  get_dependencies — find what a symbol calls / is called by (Cosmos DB)
-  read_file        — read a file's source code (GitHub API)
+Analyst tools (search only — no file reading):
+  search_code      — find relevant functions/classes (Azure AI Search)
+  get_dependencies — find relationships for a symbol (Cosmos DB)
+
+Coder tools (added later):
+  read_file        — read full file content (GitHub API)
+  write_file       — push changes to GitHub (GitHub API)
 
 Why a factory function?
-  Tools need resource_code, repos and github injected so the LLM never sees them.
-  The LLM only decides: what to search, which symbol, which file.
-
-  resource_code + repos — narrows search to this tenant's project repos only
-  github               — used by read_file to fetch from GitHub API
+  Tools need resource_code and repos injected so the LLM never sees them.
+  The LLM only decides: what to search, which symbol.
 """
 import asyncio
 import os
@@ -34,13 +34,16 @@ def _cosmos_endpoint() -> str:
     return f"https://cosmos-sdlc-{scope}-{env}.documents.azure.com:443/"
 
 
-def make_read_tools(resource_code: str, repos: list[str], github) -> list:
+def make_analyst_tools(resource_code: str, repos: list[str], on_progress=None) -> list:
     """
-    Create read-only tools bound to a specific tenant and project repos.
+    Create search-only tools for the Analyst agent.
+
+    Analyst only searches — never reads full files.
+    Files are read by the Coder agent which uses make_coder_tools().
 
     resource_code — tenant identifier for filtering
     repos         — only search within these repos (e.g. ['cart-service', 'order-service'])
-    github        — GitHub client for read_file
+    on_progress   — optional async callback(message: str) to post updates on the issue
     """
     # Build repo filter string for AI Search and Cosmos DB
     # e.g. "repo eq 'cart-service' or repo eq 'order-service'"
@@ -56,22 +59,32 @@ def make_read_tools(resource_code: str, repos: list[str], github) -> list:
         filter_expr = f"resource_code eq '{resource_code}' and ({repo_filter})"
 
         with SearchClient(_search_endpoint(), "code-chunks", DefaultAzureCredential()) as client:
-            results = client.search(
+            results = list(client.search(
                 search_text=query,
                 filter=filter_expr,
                 select=["repo", "file", "type", "name", "content"],
                 top=5,
+            ))
+
+        matches = [
+            {
+                "repo":    r.get("repo"),
+                "file":    r.get("file"),
+                "type":    r.get("type"),
+                "name":    r.get("name"),
+                "content": r.get("content", "")[:500],
+            }
+            for r in results
+        ]
+
+        # post progress comment on the issue
+        if on_progress and matches:
+            names = ", ".join(m["name"] for m in matches if m.get("name"))
+            asyncio.get_event_loop().run_until_complete(
+                on_progress(f'🔎 Searched: **"{query}"**\n   Found: {names}')
             )
-            return [
-                {
-                    "repo":    r.get("repo"),
-                    "file":    r.get("file"),
-                    "type":    r.get("type"),
-                    "name":    r.get("name"),
-                    "content": r.get("content", "")[:500],
-                }
-                for r in results
-            ]
+
+        return matches
 
     @tool
     def get_dependencies(symbol: str) -> list:
@@ -102,7 +115,7 @@ def make_read_tools(resource_code: str, repos: list[str], github) -> list:
         if not nodes:
             return [{"message": f"Symbol '{symbol}' not found in index"}]
 
-        return [
+        matches = [
             {
                 "repo":   n.get("repo"),
                 "file":   n.get("file"),
@@ -113,17 +126,13 @@ def make_read_tools(resource_code: str, repos: list[str], github) -> list:
             for n in nodes
         ]
 
-    @tool
-    def read_file(repo: str, file_path: str) -> dict:
-        """
-        Read the source code of a file from the GitHub repository.
-        Use this to inspect the current implementation before deciding what to change.
-        repo      — repository name e.g. 'cart-service'
-        file_path — relative path e.g. 'cart/main.py'
-        """
-        content = asyncio.get_event_loop().run_until_complete(
-            github.get_file_content(repo, file_path)
-        )
-        return {"repo": repo, "file": file_path, "content": content}
+        # post progress comment on the issue
+        if on_progress and matches:
+            calls = ", ".join(matches[0].get("calls", [])) or "none"
+            asyncio.get_event_loop().run_until_complete(
+                on_progress(f'🔗 Dependencies for **{symbol}**: calls → {calls}')
+            )
 
-    return [search_code, get_dependencies, read_file]
+        return matches
+
+    return [search_code, get_dependencies]

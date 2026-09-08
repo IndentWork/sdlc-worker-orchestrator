@@ -21,7 +21,7 @@ from app.services.storage import (
     get_repos_for_project,
     load_sdlc_config,
 )
-from app.tools.codebase import make_read_tools
+from app.tools.codebase import make_analyst_tools
 
 log = logging.getLogger("worker.orchestrator")
 
@@ -100,13 +100,23 @@ async def run(
         }))
         return
 
-    # Step 5 — create tools filtered to this project's repos only
-    tools = make_read_tools(resource_code, repos, github)
+    # Step 5 — create tools with progress callback that comments on the issue
+    async def on_progress(message: str) -> None:
+        """Post a progress update as a comment on the issue."""
+        try:
+            await github.comment_on_issue(issue_repo, issue_number, message)
+        except Exception as exc:
+            log.warning(json.dumps({"event": "progress_comment_failed", "error": str(exc)}))
+
+    tools = make_analyst_tools(resource_code, repos, on_progress=on_progress)
     log.info(json.dumps({
-        "event": "tools_created",
+        "event": "analyst_tools_created",
         "tools": [t.name for t in tools],
         "repos": repos,
     }))
+
+    # post initial comment so tenant knows work has started
+    await on_progress(f"🤖 SDLC Agent started investigating...\n\nRequirement: {requirement[:300]}")
 
     # Step 6 — run Analyst
     try:
@@ -121,22 +131,17 @@ async def run(
 
     # Step 7 — handle non-feasible outcomes
     if status == "not_feasible":
-        log.info(json.dumps({
-            "event":   "not_feasible",
-            "summary": analysis.get("summary"),
-        }))
-        # TODO: comment on issue
+        log.info(json.dumps({"event": "not_feasible", "summary": analysis.get("summary")}))
+        await on_progress(f"❌ Not feasible\n\n{analysis.get('summary')}")
         return
 
     if status == "already_implemented":
-        log.info(json.dumps({
-            "event":   "already_implemented",
-            "summary": analysis.get("summary"),
-        }))
-        # TODO: comment on issue
+        log.info(json.dumps({"event": "already_implemented", "summary": analysis.get("summary")}))
+        await on_progress(f"✅ Already implemented\n\n{analysis.get('summary')}")
         return
 
     # Step 8 — feasible
+    files = ", ".join(analysis.get("files_to_change", []))
     log.info(json.dumps({
         "event":           "feasible",
         "repo":            analysis.get("repo"),
@@ -145,5 +150,13 @@ async def run(
         "branch_title":    analysis.get("branch_title"),
         "summary":         analysis.get("summary"),
     }))
+
+    await on_progress(
+        f"✅ Analysis complete — Feasible\n\n"
+        f"**Repo:** {analysis.get('repo')}\n"
+        f"**Files to change:** {files}\n"
+        f"**Plan:** {analysis.get('summary')}\n\n"
+        f"⏳ Handing off to Coder agent..."
+    )
 
     # TODO: create branch → run Coder → create PR → run Reviewer → comment on issue
