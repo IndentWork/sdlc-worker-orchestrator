@@ -69,6 +69,13 @@ class ProgressTracker:
             f"Please review and comment `/approve` to merge or `/reject <reason>` to request changes."
         )
 
+    def rework_started(self, reason: str, attempt: int, max_tries: int) -> None:
+        self._post(
+            f"🔄 Reviewer rejected (attempt {attempt}/{max_tries}) — sending back to Coder\n\n"
+            f"**Feedback:** {reason}\n\n"
+            f"⏳ Coder is reworking..."
+        )
+
     def reviewer_done(self, result: dict) -> None:
         status = result.get("status")
         reason = result.get("reason", "")

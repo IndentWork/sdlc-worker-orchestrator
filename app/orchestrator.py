@@ -221,6 +221,7 @@ class SDLCPipeline:
                 return
 
             # Coder reworks with reviewer feedback — pushes to same branch, PR auto-updates
+            self.tracker.rework_started(self.review_result["reason"], reviewer_rejections, MAX_REVIEWER_REJECTIONS)
             self._run_coder(feedback=self.review_result["reason"])
 
         # Step 9 — Notify human (PR approved by agent, waiting for human)
