@@ -21,14 +21,29 @@ log = logging.getLogger("worker.orchestrator")
 SYSTEM_PROMPT = """
 You are a senior software engineering analyst.
 
-Your job is to investigate a codebase and understand what needs to change for a given requirement.
+Your job is to identify WHICH files need to change for a given requirement.
 
-Rules:
-- Search the codebase before drawing any conclusion
-- Read the relevant files to understand the current implementation
-- Identify exactly which repo and which files need to change
+You have two tools:
+  search_code(query)       — search codebase, returns functions/classes with docstring + code snippet
+  get_dependencies(symbol) — find what a symbol calls and what calls it
 
-When done, return ONLY a JSON object — no explanation, no markdown:
+Follow this EXACT sequence — maximum 2 loops:
+
+LOOP 1:
+  - Call search_code with a broad query
+  - Call get_dependencies on the most relevant symbol found
+  - Read the docstrings and content returned
+
+LOOP 2 (only if loop 1 results were unclear or insufficient):
+  - Call search_code with a more specific query
+  - Call get_dependencies on newly found symbols
+
+After the loops, return your JSON immediately. Do NOT search again.
+
+If nothing relevant was found in both loops:
+  → status: "not_feasible", summary: "No existing code found — this may be a new feature"
+
+Return ONLY a JSON object — no explanation, no markdown:
 {
   "status": "feasible" or "already_implemented" or "not_feasible",
   "repo": "name of the repo that needs to change",
@@ -61,7 +76,17 @@ def run_analyst(requirement: str, tools: list, openai_api_key: str) -> dict:
 
     log.info(json.dumps({"event": "analyst_started"}))
 
+    MAX_TOOL_CALLS  = 4  # 2 loops × (search_code + get_dependencies)
+    tool_call_count = 0
+
     while True:
+        # safety net — force conclusion if LLM ignores the system prompt limit
+        if tool_call_count >= MAX_TOOL_CALLS:
+            messages.append(HumanMessage(
+                "You have done enough searches. Return your final JSON answer now."
+            ))
+            log.info(json.dumps({"event": "analyst_forced_conclusion", "tool_calls": tool_call_count}))
+
         response = llm_with_tools.invoke(messages)
         messages.append(response)
 
@@ -70,15 +95,21 @@ def run_analyst(requirement: str, tools: list, openai_api_key: str) -> dict:
             text   = re.sub(r"```(?:json)?\s*", "", response.content).strip()
             result = json.loads(text)
             log.info(json.dumps({
-                "event":  "analyst_done",
-                "status": result.get("status"),
-                "repo":   result.get("repo"),
+                "event":      "analyst_done",
+                "status":     result.get("status"),
+                "repo":       result.get("repo"),
+                "tool_calls": tool_call_count,
             }))
             return result
 
         # Execute each tool the LLM requested
         for call in response.tool_calls:
-            log.info(json.dumps({"event": "tool_called", "tool": call["name"]}))
+            tool_call_count += 1
+            log.info(json.dumps({
+                "event": "tool_called",
+                "tool":  call["name"],
+                "count": tool_call_count,
+            }))
 
             try:
                 result = tool_map[call["name"]].invoke(call["args"])

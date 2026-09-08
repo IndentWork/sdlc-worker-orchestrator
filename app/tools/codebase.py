@@ -72,7 +72,7 @@ def make_analyst_tools(resource_code: str, repos: list[str], on_progress=None) -
                 "file":    r.get("file"),
                 "type":    r.get("type"),
                 "name":    r.get("name"),
-                "content": r.get("content", "")[:500],
+                "content": r.get("content", ""),  # full content — has docstring + signature
             }
             for r in results
         ]
