@@ -42,6 +42,12 @@ STEP 2 — Implement the minimal change
   Never omit existing methods, classes, or imports.
   Match existing code style exactly.
 
+  IMPORTANT — update ALL references:
+  If you rename a function, class, or variable, search for ALL references to it.
+  This includes test files (tests/), other source files, and imports.
+  Tests that call the old name will fail — update them too.
+  Run tests to confirm before committing.
+
 STEP 3 — Run tests immediately after writing
   Always run tests after every write. Do not skip this step.
 
@@ -99,7 +105,9 @@ def run_coder(
         f"Requirement: {requirement}\n\n"
         f"Files to change: {', '.join(files_to_change)}\n\n"
         f"The feature branch is already checked out. "
-        f"Read the files, implement the change, run tests, commit, and push."
+        f"Read the files, implement the change. "
+        f"If you rename anything, also update test files (check tests/ folder). "
+        f"Run tests, commit, and push."
     )
     if feedback:
         task += f"\n\nThis is a rework. Human feedback:\n{feedback}\nAddress this specifically."
