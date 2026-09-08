@@ -62,6 +62,13 @@ class ProgressTracker:
             f"⏳ Handing off to Coder agent..."
         )
 
+    def pr_created(self, pr_url: str, pr_number: int) -> None:
+        self._post(
+            f"🔀 Pull Request created\n\n"
+            f"**PR #{pr_number}:** {pr_url}\n\n"
+            f"Please review and comment `/approve` to merge or `/reject <reason>` to request changes."
+        )
+
     def coder_done(self, result: dict) -> None:
         status = result.get("status")
         commits = result.get("commits", [])

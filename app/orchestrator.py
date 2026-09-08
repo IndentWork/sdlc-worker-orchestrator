@@ -113,7 +113,33 @@ class SDLCPipeline:
         )
         self.tracker.coder_done(self.coder_result)
 
-    # TODO: def _create_pr(self)
+    def _create_pr(self) -> None:
+        """
+        Open a PR from the feature branch to main.
+        PR body includes the requirement, analyst summary and commits from coder.
+        Posts the PR URL as a comment on the issue so tenant can review.
+        """
+        repo   = self.analysis["repo"]
+        commits_text = "\n".join(
+            f"- {c.get('message', '')}" for c in self.coder_result.get("commits", [])
+        )
+        body = (
+            f"**Requirement:**\n{self.ctx.requirement}\n\n"
+            f"**Analysis:**\n{self.analysis.get('summary', '')}\n\n"
+            f"**Commits:**\n{commits_text}\n\n"
+            f"Closes #{self.ctx.issue_number}"
+        )
+
+        pr = self.github.create_pr(
+            repo   = repo,
+            branch = self.branch,
+            title  = self.ctx.issue_title,
+            body   = body,
+        )
+
+        log.info(json.dumps({"event": "pr_created", "pr_number": pr["pr_number"], "url": pr["url"]}))
+        self.tracker.pr_created(pr["url"], pr["pr_number"])
+
     # TODO: def _run_reviewer(self)
     # TODO: def _wait_for_human(self)
     # TODO: def _merge_and_close(self)
@@ -158,8 +184,15 @@ class SDLCPipeline:
         if self.coder_result.get("status") == "failed":
             return
 
-        # Step 7 — Create PR (TODO)
-        # self._create_pr()          → opens PR from branch → main
+        # Step 7 — Create PR
+        # Opens PR from feature branch → main
+        # Posts PR URL as comment on the issue
+        self._create_pr()
+
+        # Step 8 — Reviewer reviews the PR (TODO)
+        # self._run_reviewer()
+        # self._wait_for_human()
+        # self._merge_and_close()
 
         # Step 6 — Reviewer reviews the PR (TODO)
         # self._run_reviewer()       → LLM reviews diff, approves or rejects

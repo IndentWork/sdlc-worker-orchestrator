@@ -83,6 +83,27 @@ class GitHub:
         token           = _get_installation_token(installation_id, jwt_token)
         return cls(github_org, token)
 
+    def create_pr(self, repo: str, branch: str, title: str, body: str) -> dict:
+        """
+        Open a pull request from the feature branch to main.
+        Returns {pr_number, url} — used to post PR link on the issue.
+        """
+        url = f"{GITHUB_API}/repos/{self._org}/{repo}/pulls"
+        with httpx.Client() as client:
+            response = client.post(url, headers=self._headers, json={
+                "title": title,
+                "body":  body,
+                "head":  branch,
+                "base":  "main",
+            })
+            response.raise_for_status()
+            data = response.json()
+
+        return {
+            "pr_number": data["number"],
+            "url":       data["html_url"],
+        }
+
     def comment_on_issue(self, issue_repo: str, issue_number: int, body: str) -> None:
         """Post a comment on a GitHub issue — used to report live progress."""
         url = f"{GITHUB_API}/repos/{self._org}/{issue_repo}/issues/{issue_number}/comments"
