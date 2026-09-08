@@ -97,6 +97,21 @@ class GitHub:
         token           = await _get_installation_token(installation_id, jwt_token)
         return cls(github_org, token)
 
+    async def get_file_content(self, repo: str, file_path: str) -> str:
+        """
+        Fetch the raw content of a file from GitHub.
+        Used by the read_file tool so agents can inspect source code.
+        """
+        import base64
+        url = f"{GITHUB_API}/repos/{self._org}/{repo}/contents/{file_path}"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=self._headers)
+            response.raise_for_status()
+            encoded = response.json()["content"]
+
+        return base64.b64decode(encoded.replace("\n", "")).decode("utf-8")
+
     async def get_issue(self, issue_repo: str, issue_number: int) -> dict:
         """
         Fetch issue details — title, body (the requirement), labels.

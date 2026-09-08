@@ -21,8 +21,9 @@ from datetime import datetime, timezone
 from azure.identity.aio import DefaultAzureCredential
 from azure.servicebus.aio import ServiceBusClient
 
+from app.orchestrator import run
 from app.services.github import GitHub
-from app.services.keyvault import get_github_app_private_key
+from app.services.keyvault import get_github_app_private_key, get_openai_api_key
 
 TOPIC_NAME        = "sdlc-events"
 SUBSCRIPTION_NAME = "orchestrator"
@@ -59,14 +60,10 @@ log = _setup_logging()
 # ── Message handler ───────────────────────────────────────────────────────────
 
 async def _process_message(payload: dict) -> None:
-    """
-    Process one orchestrate message.
-    Fetches issue from GitHub and logs the requirement.
-    Next: will pass requirement to Analyst agent.
-    """
+    """Process one orchestrate message — runs the full pipeline."""
     github_org   = payload.get("github_org")
-    issue_repo   = payload.get("issue_repo")
     issue_number = payload.get("issue_number")
+    issue_repo   = payload.get("issue_repo")
 
     log.info(json.dumps({
         "event":        "orchestration_started",
@@ -75,21 +72,16 @@ async def _process_message(payload: dict) -> None:
         "issue_number": issue_number,
     }))
 
-    # get GitHub App token
-    app_id      = os.environ["GITHUB_APP_ID"]
-    private_key = await get_github_app_private_key()
-    github      = await GitHub.create(github_org, app_id, private_key)
+    # read secrets from Key Vault
+    app_id         = os.environ["GITHUB_APP_ID"]
+    private_key    = await get_github_app_private_key()
+    openai_api_key = await get_openai_api_key()
 
-    # fetch issue — the user's requirement is in the body
-    issue = await github.get_issue(issue_repo, issue_number)
+    # create GitHub client for this pipeline run
+    github = await GitHub.create(github_org, app_id, private_key)
 
-    log.info(json.dumps({
-        "event":       "issue_fetched",
-        "number":      issue["number"],
-        "title":       issue["title"],
-        "requirement": issue["body"],
-        "url":         issue["url"],
-    }))
+    # run orchestrator
+    await run(payload, github, openai_api_key)
 
 
 # ── Service Bus listener ──────────────────────────────────────────────────────
