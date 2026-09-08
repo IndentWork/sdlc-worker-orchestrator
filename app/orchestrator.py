@@ -13,11 +13,13 @@ Reads top-to-bottom in run():
 State lives in self.* — each step method updates state and progresses the pipeline.
 No LLM in this file — agents are called via run_analyst() / run_coder() / run_reviewer().
 """
+import json
 import logging
 
 from app.agents.analyst import run_analyst
 from app.observability.progress import ProgressTracker
 from app.services.context import ContextError, load_context
+from app.services.git import GitRepo
 from app.services.github import GitHub
 from app.tools.codebase import make_analyst_tools
 
@@ -37,6 +39,8 @@ class SDLCPipeline:
         self.ctx      = None   # PipelineContext (sdlc.yml + project + issue)
         self.tracker  = None   # ProgressTracker (posts on issue)
         self.analysis = None   # Analyst output {status, repo, files_to_change, ...}
+        self.branch   = None   # Feature branch name e.g. feat/issue-17-rename-apply-discount-agent
+        self.git_repo = None   # GitRepo — local clone of the code repo
 
     # ── Pipeline steps ────────────────────────────────────────────────────────
 
@@ -66,7 +70,32 @@ class SDLCPipeline:
                 summary = self.analysis.get("summary", ""),
             )
 
-    # TODO: def _create_branch(self)
+    def _create_branch(self) -> None:
+        """
+        Build branch name from analyst output and create it on GitHub from main.
+        Branch name follows convention: {type}/issue-{number}-{title}-agent
+        The -agent suffix is a guardrail — pipeline only merges branches ending in -agent.
+        """
+        repo   = self.analysis["repo"]
+        self.branch = (
+            f"{self.analysis['branch_type']}"
+            f"/issue-{self.ctx.issue_number}"
+            f"-{self.analysis['branch_title']}"
+            f"-agent"
+        )
+        self.github.create_branch(repo, self.branch)
+        log.info(json.dumps({"event": "branch_created", "branch": self.branch, "repo": repo}))
+
+        # Clone the repo locally so Coder can read/write files and run tests
+        self.git_repo = GitRepo.clone(
+            github_org   = self.ctx.github_org,
+            repo_name    = repo,
+            branch_name  = self.branch,
+            token        = self.github._token,
+            issue_number = self.ctx.issue_number,
+        )
+        self.tracker.branch_created(self.branch, repo)
+
     # TODO: def _run_coder(self)
     # TODO: def _create_pr(self)
     # TODO: def _run_reviewer(self)
@@ -101,9 +130,13 @@ class SDLCPipeline:
         if self.analysis.get("status") != "feasible":
             return
 
-        # Step 5 — Coder implements the change (TODO)
-        # self._create_branch()      → creates feature branch on GitHub
-        # self._run_coder()          → LLM writes code, commits, pushes
+        # Step 5 — Create feature branch on GitHub
+        # Branch name: {type}/issue-{number}-{title}-agent
+        # Posts branch name as comment on the issue
+        self._create_branch()
+
+        # Step 6 — Coder implements the change (TODO)
+        # self._run_coder()          → LLM reads files, writes changes, commits
         # self._create_pr()          → opens PR from branch → main
 
         # Step 6 — Reviewer reviews the PR (TODO)

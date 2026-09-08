@@ -90,6 +90,29 @@ class GitHub:
             response = client.post(url, headers=self._headers, json={"body": body})
             response.raise_for_status()
 
+    def create_branch(self, repo: str, branch_name: str) -> str:
+        """
+        Create a new branch from the latest commit on main.
+        Returns the branch name — used by Coder to push changes to.
+        """
+        # Get the SHA of main's latest commit
+        url = f"{GITHUB_API}/repos/{self._org}/{repo}/git/ref/heads/main"
+        with httpx.Client() as client:
+            response = client.get(url, headers=self._headers)
+            response.raise_for_status()
+            sha = response.json()["object"]["sha"]
+
+        # Create the new branch from that SHA
+        url = f"{GITHUB_API}/repos/{self._org}/{repo}/git/refs"
+        with httpx.Client() as client:
+            response = client.post(url, headers=self._headers, json={
+                "ref": f"refs/heads/{branch_name}",
+                "sha": sha,
+            })
+            response.raise_for_status()
+
+        return branch_name
+
     def get_file_content(self, repo: str, file_path: str) -> str:
         """Fetch the raw content of a file from GitHub."""
         url = f"{GITHUB_API}/repos/{self._org}/{repo}/contents/{file_path}"

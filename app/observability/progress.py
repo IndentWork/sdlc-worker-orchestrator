@@ -51,5 +51,13 @@ class ProgressTracker:
             f"**Repo:** {repo}\n"
             f"**Files to change:** {file_list}\n"
             f"**Plan:** {summary}\n\n"
+            f"⏳ Creating feature branch..."
+        )
+
+    def branch_created(self, branch: str, repo: str) -> None:
+        self._post(
+            f"🌿 Branch created\n\n"
+            f"**Branch:** `{branch}`\n"
+            f"**Repo:** {repo}\n\n"
             f"⏳ Handing off to Coder agent..."
         )
