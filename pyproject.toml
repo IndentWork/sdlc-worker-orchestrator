@@ -9,5 +9,7 @@ dependencies = [
     "azure-keyvault-secrets>=4.9.0",
     "azure-servicebus>=7.14.2",
     "httpx>=0.28.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.3.0",
     "PyJWT[crypto]>=2.10.0",
 ]

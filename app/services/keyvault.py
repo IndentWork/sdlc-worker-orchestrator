@@ -11,6 +11,7 @@ from azure.identity.aio import DefaultAzureCredential
 from azure.keyvault.secrets.aio import SecretClient
 
 GITHUB_APP_PRIVATE_KEY_SECRET = "github-app-private-key"
+OPENAI_API_KEY_SECRET         = "openai-api-key"
 
 
 def _vault_url() -> str:
@@ -19,13 +20,19 @@ def _vault_url() -> str:
     return os.environ.get("KEY_VAULT_URL", f"https://kv-sdlc-base-{env}.vault.azure.net")
 
 
-async def get_github_app_private_key() -> str:
-    """
-    Read the GitHub App private key PEM from Key Vault.
-    Called once at worker startup and reused for all GitHub token requests.
-    """
+async def _get_secret(name: str) -> str:
+    """Read a single secret from Key Vault."""
     credential = DefaultAzureCredential()
-
     async with SecretClient(_vault_url(), credential) as client:
-        secret = await client.get_secret(GITHUB_APP_PRIVATE_KEY_SECRET)
+        secret = await client.get_secret(name)
         return secret.value
+
+
+async def get_github_app_private_key() -> str:
+    """Read the GitHub App private key PEM from Key Vault."""
+    return await _get_secret(GITHUB_APP_PRIVATE_KEY_SECRET)
+
+
+async def get_openai_api_key() -> str:
+    """Read the OpenAI API key from Key Vault."""
+    return await _get_secret(OPENAI_API_KEY_SECRET)
