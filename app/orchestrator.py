@@ -120,7 +120,7 @@ async def run(
 
     # Step 6 — run Analyst
     try:
-        analysis = run_analyst(requirement, tools, openai_api_key)
+        analysis = await run_analyst(requirement, tools, openai_api_key)
         status   = analysis.get("status")
     except Exception as exc:
         log.error(json.dumps({
