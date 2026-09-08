@@ -52,7 +52,7 @@ def make_coder_tools(git_repo: GitRepo) -> list:
         Run pytest in the repository and return results.
         test_path — optional path to limit scope e.g. 'tests/test_cart.py'
         """
-        cmd = ["python", "-m", "pytest", test_path, "-q", "--tb=short"]
+        cmd = ["uv", "run", "--group", "dev", "pytest", test_path, "-q", "--tb=short"]
         result = subprocess.run(
             cmd,
             cwd=git_repo._path,
