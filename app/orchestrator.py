@@ -26,13 +26,9 @@ from app.tools.codebase import make_analyst_tools
 log = logging.getLogger("worker.orchestrator")
 
 
-async def run(
-    payload: dict,
-    github: GitHub,
-    openai_api_key: str,
-) -> None:
+def run(payload: dict, github: GitHub, openai_api_key: str) -> None:
     """
-    Run the full orchestration pipeline for one issue.
+    Run the full orchestration pipeline for one issue (sync).
 
     payload        — {resource_code, github_org, tier, issue_repo, issue_number}
     github         — GitHub client (already authenticated)
@@ -76,7 +72,7 @@ async def run(
 
     # Step 4 — fetch issue from GitHub
     try:
-        issue       = await github.get_issue(issue_repo, issue_number)
+        issue       = github.get_issue(issue_repo, issue_number)
         requirement = issue["body"]
         log.info(json.dumps({
             "event":       "issue_fetched",
@@ -100,11 +96,11 @@ async def run(
         }))
         return
 
-    # Step 5 — create tools with progress callback that comments on the issue
-    async def on_progress(message: str) -> None:
+    # Step 5 — create tools with sync progress callback
+    def on_progress(message: str) -> None:
         """Post a progress update as a comment on the issue."""
         try:
-            await github.comment_on_issue(issue_repo, issue_number, message)
+            github.comment_on_issue(issue_repo, issue_number, message)
         except Exception as exc:
             log.warning(json.dumps({"event": "progress_comment_failed", "error": str(exc)}))
 
@@ -116,28 +112,25 @@ async def run(
     }))
 
     # post initial comment so tenant knows work has started
-    await on_progress(f"🤖 SDLC Agent started investigating...\n\nRequirement: {requirement[:300]}")
+    on_progress(f"🤖 SDLC Agent started investigating...\n\nRequirement: {requirement[:300]}")
 
     # Step 6 — run Analyst
     try:
-        analysis = await run_analyst(requirement, tools, openai_api_key)
+        analysis = run_analyst(requirement, tools, openai_api_key)
         status   = analysis.get("status")
     except Exception as exc:
-        log.error(json.dumps({
-            "event": "analyst_failed",
-            "error": str(exc),
-        }))
+        log.error(json.dumps({"event": "analyst_failed", "error": str(exc)}))
         return
 
     # Step 7 — handle non-feasible outcomes
     if status == "not_feasible":
         log.info(json.dumps({"event": "not_feasible", "summary": analysis.get("summary")}))
-        await on_progress(f"❌ Not feasible\n\n{analysis.get('summary')}")
+        on_progress(f"❌ Not feasible\n\n{analysis.get('summary')}")
         return
 
     if status == "already_implemented":
         log.info(json.dumps({"event": "already_implemented", "summary": analysis.get("summary")}))
-        await on_progress(f"✅ Already implemented\n\n{analysis.get('summary')}")
+        on_progress(f"✅ Already implemented\n\n{analysis.get('summary')}")
         return
 
     # Step 8 — feasible
@@ -151,7 +144,7 @@ async def run(
         "summary":         analysis.get("summary"),
     }))
 
-    await on_progress(
+    on_progress(
         f"✅ Analysis complete — Feasible\n\n"
         f"**Repo:** {analysis.get('repo')}\n"
         f"**Files to change:** {files}\n"

@@ -55,12 +55,12 @@ Return ONLY a JSON object — no explanation, no markdown:
 """
 
 
-async def run_analyst(requirement: str, tools: list, openai_api_key: str) -> dict:
+def run_analyst(requirement: str, tools: list, openai_api_key: str) -> dict:
     """
-    Run the analyst agent (async).
+    Run the analyst agent (sync).
 
     requirement    — the user's plain-English requirement
-    tools          — async tools: [search_code, get_dependencies]
+    tools          — sync tools: [search_code, get_dependencies]
     openai_api_key — from Key Vault
 
     Returns dict: {status, repo, files_to_change, summary, branch_type, branch_title}
@@ -87,7 +87,7 @@ async def run_analyst(requirement: str, tools: list, openai_api_key: str) -> dic
             ))
             log.info(json.dumps({"event": "analyst_forced_conclusion", "tool_calls": tool_call_count}))
 
-        response = await llm_with_tools.ainvoke(messages)
+        response = llm_with_tools.invoke(messages)
         messages.append(response)
 
         # No tool calls — LLM is done, parse the JSON result
@@ -102,7 +102,7 @@ async def run_analyst(requirement: str, tools: list, openai_api_key: str) -> dic
             }))
             return result
 
-        # Execute each tool the LLM requested (async)
+        # Execute each tool the LLM requested
         for call in response.tool_calls:
             tool_call_count += 1
             log.info(json.dumps({
@@ -113,7 +113,7 @@ async def run_analyst(requirement: str, tools: list, openai_api_key: str) -> dic
             }))
 
             try:
-                result = await tool_map[call["name"]].ainvoke(call["args"])
+                result = tool_map[call["name"]].invoke(call["args"])
                 log.info(json.dumps({
                     "event":        "tool_result",
                     "tool":         call["name"],

@@ -1,14 +1,12 @@
 """
-Key Vault service — reads secrets from Azure Key Vault at startup.
+Key Vault service — reads secrets from Azure Key Vault.
 
-The GitHub App private key is a multi-line PEM file stored in Key Vault.
-It is read once at startup and reused for all GitHub token requests.
-Authentication uses DefaultAzureCredential (Managed Identity in Azure).
+Sync client — called at message processing time to fetch secrets.
 """
 import os
 
-from azure.identity.aio import DefaultAzureCredential
-from azure.keyvault.secrets.aio import SecretClient
+from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
 
 GITHUB_APP_PRIVATE_KEY_SECRET = "github-app-private-key"
 OPENAI_API_KEY_SECRET         = "openai-api-key"
@@ -20,19 +18,19 @@ def _vault_url() -> str:
     return os.environ.get("KEY_VAULT_URL", f"https://kv-sdlc-base-{env}.vault.azure.net")
 
 
-async def _get_secret(name: str) -> str:
-    """Read a single secret from Key Vault."""
+def _get_secret(name: str) -> str:
+    """Read a single secret from Key Vault (sync)."""
     credential = DefaultAzureCredential()
-    async with SecretClient(_vault_url(), credential) as client:
-        secret = await client.get_secret(name)
+    with SecretClient(_vault_url(), credential) as client:
+        secret = client.get_secret(name)
         return secret.value
 
 
-async def get_github_app_private_key() -> str:
+def get_github_app_private_key() -> str:
     """Read the GitHub App private key PEM from Key Vault."""
-    return await _get_secret(GITHUB_APP_PRIVATE_KEY_SECRET)
+    return _get_secret(GITHUB_APP_PRIVATE_KEY_SECRET)
 
 
-async def get_openai_api_key() -> str:
+def get_openai_api_key() -> str:
     """Read the OpenAI API key from Key Vault."""
-    return await _get_secret(OPENAI_API_KEY_SECRET)
+    return _get_secret(OPENAI_API_KEY_SECRET)
