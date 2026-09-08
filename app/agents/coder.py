@@ -141,6 +141,11 @@ def run_coder(
             try:
                 result  = tool_map[call["name"]].invoke(call["args"])
                 success = True
+                log.info(json.dumps({
+                    "event":  "tool_result",
+                    "tool":   call["name"],
+                    "result": str(result)[:300],
+                }))
             except Exception as exc:
                 result  = {"error": str(exc)}
                 success = False

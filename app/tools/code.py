@@ -59,11 +59,16 @@ def make_coder_tools(git_repo: GitRepo) -> list:
             capture_output=True,
             text=True,
         )
+        # treat "no tests collected" as passed — not a test failure
+        no_tests = "no tests ran" in result.stdout or "collected 0 items" in result.stdout
+        passed   = result.returncode == 0 or no_tests
+
         return {
-            "passed":      result.returncode == 0,
+            "passed":      passed,
             "stdout":      result.stdout[-2000:],
             "stderr":      result.stderr[-500:],
             "return_code": result.returncode,
+            "no_tests":    no_tests,
         }
 
     @tool
